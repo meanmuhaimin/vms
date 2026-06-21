@@ -2,6 +2,24 @@
 
 NextGen VMS is a supervised, mobile-first Visitor Management System for secure facility check-ins. It combines a Laravel API, local Windows hardware bridge, NATS-based agent mesh, MyKad smart card integration, badge printing, OTP verification, host approvals, wayfinding, and automated visitor PII pruning.
 
+## Beginner Quick Start
+
+If you are new to the project, start here:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://localhost:8000
+```
+
+For a step-by-step guide, read `docs/BeginnerSetup.md`.
+
+For Dokploy, use `docker-compose.dokploy.yml` and copy environment variables from `.env.dokploy.example`.
+
 ## Components
 
 - `app/`, `routes/`, `database/`: Laravel 11 API, models, migrations, and tests.
@@ -14,6 +32,10 @@ NextGen VMS is a supervised, mobile-first Visitor Management System for secure f
 
 ## Requirements
 
+The easiest setup only needs Docker and Docker Compose.
+
+Full local development without Docker needs:
+
 - PHP 8.2+
 - Composer
 - Python 3
@@ -21,7 +43,7 @@ NextGen VMS is a supervised, mobile-first Visitor Management System for secure f
 - Docker and Docker Compose for the containerized stack
 - PostgreSQL and Redis for non-Docker runtime
 
-## Setup
+## Manual Local Setup
 
 ```bash
 cp .env.example .env
@@ -41,6 +63,14 @@ Run the Docker stack:
 ```bash
 docker compose up --build
 ```
+
+For Dokploy deployments, use:
+
+```text
+docker-compose.dokploy.yml
+```
+
+Beginner Dokploy instructions are in `docs/Dokploy.md` and `docs/BeginnerSetup.md`.
 
 API endpoint:
 
@@ -74,7 +104,9 @@ The runner checks project structure, Python agent syntax, telemetry pacing, Lara
 ## Documentation
 
 - `docs/BRD.md`: Business requirements.
+- `docs/BeginnerSetup.md`: Beginner setup paths and troubleshooting.
 - `docs/SDD.md`: System design details.
 - `docs/Tasks.md`: Implementation phases and completion status.
 - `docs/Docker.md`: Docker runtime guide.
+- `docs/Dokploy.md`: Dokploy deployment guide.
 - `docs/Validation.md`: Validation prerequisites and command details.

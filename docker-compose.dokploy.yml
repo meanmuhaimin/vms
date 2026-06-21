@@ -1,0 +1,162 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/laravel/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      APP_NAME: "${APP_NAME:-NextGen VMS}"
+      APP_ENV: "${APP_ENV:-production}"
+      APP_DEBUG: "${APP_DEBUG:-false}"
+      APP_KEY: "${APP_KEY}"
+      APP_URL: "${APP_URL}"
+      LOG_CHANNEL: "${LOG_CHANNEL:-stderr}"
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: "${DB_DATABASE:-vms}"
+      DB_USERNAME: "${DB_USERNAME:-vms}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OTP_TTL_SECONDS: "${OTP_TTL_SECONDS:-180}"
+      OTP_RESEND_LIMIT: "${OTP_RESEND_LIMIT:-3}"
+      VMS_DEFAULT_PRINTER_ID: "${VMS_DEFAULT_PRINTER_ID:-LOBBY_LANE_01_PRINTER}"
+    volumes:
+      - api_storage:/var/www/html/storage
+      - api_cache:/var/www/html/bootstrap/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_DATABASE:-vms}"
+      POSTGRES_USER: "${DB_USERNAME:-vms}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-vms} -d ${DB_DATABASE:-vms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "--store_dir", "/data/jetstream"]
+    expose:
+      - "4222"
+      - "8222"
+    volumes:
+      - nats_data:/data/jetstream
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nats-provision:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    restart: "no"
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+    command: ["python", "infra/nats/provision_streams.py"]
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  telemetry-agent:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    restart: unless-stopped
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+    command: ["python", "agents/telemetry/pacing.py"]
+    depends_on:
+      nats-provision:
+        condition: service_completed_successfully
+
+  gatekeeper-agent:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    restart: unless-stopped
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+      VMS_GATEKEEPER_CONFIG: infra/vllm/gatekeeper.config.json
+    command: ["python", "agents/gatekeeper/agent.py"]
+    depends_on:
+      nats-provision:
+        condition: service_completed_successfully
+      gatekeeper-vllm:
+        condition: service_started
+        required: false
+    profiles:
+      - gpu
+
+  gatekeeper-vllm:
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    ipc: host
+    expose:
+      - "8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: "${HUGGING_FACE_HUB_TOKEN:-}"
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - "${VMS_GATEKEEPER_MODEL:-meta-llama/Meta-Llama-3-8B-Instruct}"
+      - --served-model-name
+      - vms-gatekeeper
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.85"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    profiles:
+      - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  api_cache:
+  api_storage:
+  postgres_data:
+  redis_data:
+  nats_data:
+  vllm_cache:
