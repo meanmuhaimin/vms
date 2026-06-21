@@ -20,7 +20,6 @@ RETRY_SECONDS = 2
 async def main() -> None:
     try:
         from nats.aio.client import Client as NATS
-        from nats.js.api import RetentionPolicy, StorageType, StreamConfig
     except ImportError as exc:
         raise SystemExit("Missing dependency: install nats-py before provisioning streams.") from exc
 
@@ -41,44 +40,37 @@ async def main() -> None:
             print(f"waiting for NATS at {nats_url} ({attempt}/{MAX_ATTEMPTS})")
             await asyncio.sleep(RETRY_SECONDS)
 
-    js = nc.jetstream()
+    async def jetstream_request(subject: str, payload: dict[str, object]) -> dict[str, object]:
+        message = await nc.request(subject, json.dumps(payload).encode("utf-8"), timeout=5)
+        response = json.loads(message.data.decode("utf-8"))
 
-    def is_not_found(exc: Exception) -> bool:
-        value = str(exc).lower()
-        return exc.__class__.__name__ == "NotFoundError" or "not found" in value
+        error = response.get("error")
+        if isinstance(error, dict):
+            description = error.get("description", "unknown JetStream API error")
+            code = error.get("code", "unknown")
+            raise RuntimeError(f"JetStream API error {code}: {description}")
 
-    def is_already_exists(exc: Exception) -> bool:
-        value = str(exc).lower()
-        return "already" in value and "stream" in value
+        return response
 
-    def stream_config(spec: dict[str, object]) -> StreamConfig:
-        values = dict(spec)
-        values["retention"] = RetentionPolicy(values["retention"])
-        values["storage"] = StorageType(values["storage"])
-
-        return StreamConfig(**values)
+    async def stream_exists(name: str) -> bool:
+        try:
+            await jetstream_request(f"$JS.API.STREAM.INFO.{name}", {})
+            return True
+        except RuntimeError as exc:
+            if "not found" in str(exc).lower():
+                return False
+            raise
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             for spec in stream_specs:
-                config = stream_config(spec)
-                try:
-                    await js.stream_info(config.name)
-                    await js.update_stream(config)
-                    print(f"updated stream {config.name}")
-                except Exception as exc:
-                    if not is_not_found(exc):
-                        raise
-
-                    try:
-                        await js.add_stream(config)
-                        print(f"created stream {config.name}")
-                    except Exception as add_exc:
-                        if not is_already_exists(add_exc):
-                            raise
-
-                        await js.update_stream(config)
-                        print(f"updated stream {config.name}")
+                name = str(spec["name"])
+                if await stream_exists(name):
+                    await jetstream_request(f"$JS.API.STREAM.UPDATE.{name}", spec)
+                    print(f"updated stream {name}")
+                else:
+                    await jetstream_request(f"$JS.API.STREAM.CREATE.{name}", spec)
+                    print(f"created stream {name}")
             break
         except Exception as exc:
             if attempt == MAX_ATTEMPTS:
