@@ -1,0 +1,35 @@
+services:
+  gatekeeper-vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vms-gatekeeper-vllm
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8001:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - ${VMS_GATEKEEPER_MODEL:-meta-llama/Meta-Llama-3-8B-Instruct}
+      - --served-model-name
+      - vms-gatekeeper
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.85"
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  vllm-cache:

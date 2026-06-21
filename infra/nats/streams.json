@@ -1,0 +1,44 @@
+[
+  {
+    "name": "VMS_REGISTRATION",
+    "subjects": [
+      "vms.events.registration.submitted"
+    ],
+    "retention": "limits",
+    "storage": "file",
+    "max_age": 604800000000000
+  },
+  {
+    "name": "VMS_IDENTITY",
+    "subjects": [
+      "vms.events.ocr.raw_payload",
+      "vms.events.identity.parsed",
+      "vms.events.id.parsed"
+    ],
+    "retention": "limits",
+    "storage": "file",
+    "max_age": 86400000000000
+  },
+  {
+    "name": "VMS_SECURITY",
+    "subjects": [
+      "vms.events.blacklist.snapshot",
+      "vms.events.security.clearance",
+      "vms.events.security.flagged",
+      "vms.events.sec.clear"
+    ],
+    "retention": "limits",
+    "storage": "file",
+    "max_age": 604800000000000
+  },
+  {
+    "name": "VMS_GOWA",
+    "subjects": [
+      "vms.events.gowa.outbound.queue_depth",
+      "vms.events.gowa.dispatch_command"
+    ],
+    "retention": "limits",
+    "storage": "file",
+    "max_age": 604800000000000
+  }
+]

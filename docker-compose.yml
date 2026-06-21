@@ -1,0 +1,165 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/laravel/Dockerfile
+    container_name: vms-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: "NextGen VMS"
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: vms
+      DB_USERNAME: vms
+      DB_PASSWORD: vms_secret
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      VMS_DEFAULT_PRINTER_ID: LOBBY_LANE_01_PRINTER
+    volumes:
+      - .:/var/www/html
+      - api_vendor:/var/www/html/vendor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: vms-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: vms
+      POSTGRES_USER: vms
+      POSTGRES_PASSWORD: vms_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vms -d vms"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: vms-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: vms-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "--store_dir", "/data/jetstream"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data/jetstream
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nats-provision:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    container_name: vms-nats-provision
+    restart: "no"
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+    command: ["python", "infra/nats/provision_streams.py"]
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  telemetry-agent:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    container_name: vms-telemetry-agent
+    restart: unless-stopped
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+    command: ["python", "agents/telemetry/pacing.py"]
+    depends_on:
+      nats-provision:
+        condition: service_completed_successfully
+
+  gatekeeper-agent:
+    build:
+      context: .
+      dockerfile: docker/agents/Dockerfile
+    container_name: vms-gatekeeper-agent
+    restart: unless-stopped
+    environment:
+      VMS_NATS_URL: nats://nats:4222
+      VMS_GATEKEEPER_CONFIG: infra/vllm/gatekeeper.config.json
+    command: ["python", "agents/gatekeeper/agent.py"]
+    depends_on:
+      nats-provision:
+        condition: service_completed_successfully
+      gatekeeper-vllm:
+        condition: service_started
+        required: false
+    profiles:
+      - gpu
+
+  gatekeeper-vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vms-gatekeeper-vllm
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8001:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - ${VMS_GATEKEEPER_MODEL:-meta-llama/Meta-Llama-3-8B-Instruct}
+      - --served-model-name
+      - vms-gatekeeper
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.85"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    profiles:
+      - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  api_vendor:
+  postgres_data:
+  nats_data:
+  vllm_cache:

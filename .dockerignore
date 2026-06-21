@@ -1,0 +1,9 @@
+.git
+.env
+vendor
+node_modules
+local-bridge/Vms.LocalBridge/bin
+local-bridge/Vms.LocalBridge/obj
+database/validation.sqlite
+storage/logs/*.log
+**/__pycache__

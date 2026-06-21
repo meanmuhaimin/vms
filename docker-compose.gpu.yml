@@ -1,0 +1,6 @@
+services:
+  gatekeeper-agent:
+    profiles: []
+
+  gatekeeper-vllm:
+    profiles: []
