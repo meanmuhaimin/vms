@@ -10,6 +10,8 @@
 /database/database.sqlite
 /bootstrap/cache/*.php
 !/bootstrap/cache/.gitkeep
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitkeep
 /storage/framework/views/*.php
 /storage/logs/*.log
 **/__pycache__/
