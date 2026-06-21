@@ -20,7 +20,7 @@ RETRY_SECONDS = 2
 async def main() -> None:
     try:
         from nats.aio.client import Client as NATS
-        from nats.js.api import StreamConfig
+        from nats.js.api import RetentionPolicy, StorageType, StreamConfig
     except ImportError as exc:
         raise SystemExit("Missing dependency: install nats-py before provisioning streams.") from exc
 
@@ -51,10 +51,17 @@ async def main() -> None:
         value = str(exc).lower()
         return "already" in value and "stream" in value
 
+    def stream_config(spec: dict[str, object]) -> StreamConfig:
+        values = dict(spec)
+        values["retention"] = RetentionPolicy(values["retention"])
+        values["storage"] = StorageType(values["storage"])
+
+        return StreamConfig(**values)
+
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             for spec in stream_specs:
-                config = StreamConfig(**spec)
+                config = stream_config(spec)
                 try:
                     await js.stream_info(config.name)
                     await js.update_stream(config)
